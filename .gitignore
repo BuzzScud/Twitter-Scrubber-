@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+.DS_Store
+
+# Local state: SQLite db (holds the X API token), job output, server log
+data/

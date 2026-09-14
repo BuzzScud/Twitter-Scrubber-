@@ -1,0 +1,171 @@
+{% extends "base.html" %}
+{% block title %}New job · x-photo-book{% endblock %}
+{% block body %}
+<section class="hero">
+  <h1>Photo book from any public X account</h1>
+  <p>Same layout as the last mathemetica PDF: full photo on top, full tweet underneath. Jobs are stored in a local SQLite database.</p>
+</section>
+
+<form class="card" method="post" action="{{ url_for('create_job') }}">
+  <label>Handle
+    <input name="handle" id="handle" placeholder="mathemetica" required autocomplete="off">
+  </label>
+  <div class="row">
+    <label>Since
+      <input type="date" name="since" id="since">
+    </label>
+    <label>Until
+      <input type="date" name="until" id="until">
+    </label>
+    <label>Limit
+      <input type="number" name="limit" min="0" value="0" title="0 = no limit">
+    </label>
+  </div>
+
+  <div class="collect">
+    <div class="collect-head">
+      <strong>Collect URLs from X</strong> <span class="muted">no API key, uses the X tab you’re already signed in to</span>
+    </div>
+    <div class="collect-drag">
+      <a class="bookmarklet" href="{{ bookmarklet }}" title="Drag me to your Favorites bar">Send to x-photo-book</a>
+      <span class="muted">← drag this to your Favorites bar once</span>
+    </div>
+    <ol>
+      <li>Open the account on X: <a id="open-media" href="https://x.com" target="_blank" rel="noopener">Media tab</a><span id="open-search-wrap" hidden> · <a id="open-search" href="https://x.com" target="_blank" rel="noopener">search Since–Until</a></span></li>
+      <li>Click the <em>Send to x-photo-book</em> bookmark, then <em>Auto-scroll</em>.</li>
+      <li>Click <em>Send to app</em>. The URLs land in the box below.</li>
+    </ol>
+    <p class="note">Since and Until also trim pasted URLs: every post ID carries its date. If the bookmark does nothing in Safari, turn on Develop → Allow JavaScript from Smart Search Field.</p>
+  </div>
+
+  <label>Tweet URLs or IDs <span class="hint">(one per line, or paste anything that contains post links)</span>
+    <textarea name="ids_text" id="ids_text" rows="6" placeholder="https://x.com/mathemetica/status/2099183045131829512"></textarea>
+  </label>
+  <p class="count muted" id="id-count"></p>
+  <label class="check">
+    <input type="checkbox" name="classify" value="1">
+    Guess KEEP / DELETE from caption (formula-card heuristic)
+  </label>
+  {% if not has_bearer %}
+    <p class="note">No X API token saved. Collect or paste tweet URLs above, or add a bearer token in <a href="{{ url_for('settings') }}">Settings</a> to list a whole account.</p>
+  {% else %}
+    <p class="note">X API token is saved. Leave the URL box empty to page the account’s photo tweets.</p>
+  {% endif %}
+  <button type="submit">Start job</button>
+</form>
+
+<section>
+  <h2>Recent jobs</h2>
+  {% if not jobs %}
+    <p class="muted">None yet.</p>
+  {% else %}
+    <table class="jobs">
+      <thead>
+        <tr><th>ID</th><th>Handle</th><th>Status</th><th>Posts</th><th>Created</th></tr>
+      </thead>
+      <tbody>
+        {% for j in jobs %}
+        <tr>
+          <td><a href="{{ url_for('job_page', job_id=j.id) }}">{{ j.id }}</a></td>
+          <td>@{{ j.handle }}</td>
+          <td><span class="pill {{ j.status }}">{{ j.status }}</span></td>
+          <td>{{ j.post_count }}</td>
+          <td class="muted">{{ j.created_at }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+</section>
+
+<script>
+(function () {
+  var handle = document.getElementById("handle");
+  var since = document.getElementById("since");
+  var until = document.getElementById("until");
+  var box = document.getElementById("ids_text");
+  var count = document.getElementById("id-count");
+
+  /* Same rules as parse_ids_text in x_photo_book.py. */
+  function parseIds(text) {
+    var out = [], seen = new Set();
+    text.split(/[\s,]+/).forEach(function (tok) {
+      var found = Array.from(tok.matchAll(/status(?:es)?\/(\d+)/g), function (m) { return m[1]; });
+      if (!found.length && /^\d{8,25}$/.test(tok)) found = [tok];
+      found.forEach(function (id) { if (!seen.has(id)) { seen.add(id); out.push(id); } });
+    });
+    return out;
+  }
+
+  function postTime(id) {
+    var n = BigInt(id);
+    return n < 10n ** 15n ? null : Number((n >> 22n) + 1288834974657n);
+  }
+
+  function refreshCount() {
+    var ids = parseIds(box.value);
+    if (!ids.length) { count.textContent = ""; count.classList.remove("error"); return; }
+    var lo = since.value ? Date.parse(since.value + "T00:00:00Z") : null;
+    var hi = until.value ? Date.parse(until.value + "T23:59:59Z") : null;
+    var outside = ids.filter(function (id) {
+      var t = postTime(id);
+      return t !== null && ((lo !== null && t < lo) || (hi !== null && t > hi));
+    }).length;
+    var text = ids.length + (ids.length === 1 ? " post" : " posts");
+    if (outside) text += " · " + outside + " outside Since–Until will be skipped";
+    count.textContent = text;
+    count.classList.toggle("error", outside === ids.length);
+  }
+
+  function refreshLinks() {
+    var h = handle.value.trim().replace(/^@/, "");
+    var media = document.getElementById("open-media");
+    var searchWrap = document.getElementById("open-search-wrap");
+    media.href = h ? "https://x.com/" + encodeURIComponent(h) + "/media" : "https://x.com";
+    if (h && (since.value || until.value)) {
+      var q = "from:" + h + " filter:images";
+      if (since.value) q += " since:" + since.value;
+      if (until.value) {
+        var next = new Date(until.value + "T00:00:00Z");
+        next.setUTCDate(next.getUTCDate() + 1);
+        q += " until:" + next.toISOString().slice(0, 10);
+      }
+      document.getElementById("open-search").href = "https://x.com/search?f=live&q=" + encodeURIComponent(q);
+      searchWrap.hidden = false;
+    } else {
+      searchWrap.hidden = true;
+    }
+  }
+
+  /* Arrivals from the bookmarklet: #handle=…&ids=1,2,3 */
+  var params = new URLSearchParams(location.hash.slice(1));
+  if (params.has("ids")) {
+    var from = (params.get("handle") || "").trim();
+    if (from) handle.value = from;
+    var have = new Set(parseIds(box.value));
+    var incoming = (params.get("ids") || "").split(",").filter(function (id) { return /^\d{8,25}$/.test(id); });
+    var fresh = incoming.filter(function (id) { return !have.has(id); });
+    var lines = fresh.map(function (id) { return "https://x.com/" + (from || "i") + "/status/" + id; });
+    box.value = (box.value.trim() ? box.value.trim() + "\n" : "") + lines.join("\n");
+    history.replaceState(null, "", location.pathname + location.search);
+    var flash = document.createElement("ul");
+    flash.className = "flash";
+    var li = document.createElement("li");
+    li.textContent = "Added " + fresh.length + " posts from X" + (from ? " (@" + from + ")" : "") +
+      (incoming.length > fresh.length ? ", " + (incoming.length - fresh.length) + " were already in the box" : "") +
+      ". Set dates or a limit if you like, then Start job.";
+    flash.appendChild(li);
+    document.querySelector("main").prepend(flash);
+  }
+
+  [handle, since, until].forEach(function (input) {
+    ["input", "change"].forEach(function (type) {
+      input.addEventListener(type, function () { refreshLinks(); refreshCount(); });
+    });
+  });
+  box.addEventListener("input", refreshCount);
+  refreshLinks();
+  refreshCount();
+})();
+</script>
+{% endblock %}

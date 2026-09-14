@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Settings · x-photo-book{% endblock %}
+{% block body %}
+<section class="hero">
+  <h1>Settings</h1>
+  <p>Optional X API v2 bearer token. Stored only in the local SQLite file on this machine. Needed to list every photo on an account. Tweet URLs work without it.</p>
+</section>
+<form class="card" method="post">
+  <label>Bearer token
+    <input type="password" name="bearer" placeholder="{% if has_bearer %}token saved — paste to replace{% else %}not set{% endif %}" autocomplete="off">
+  </label>
+  <button type="submit">Save</button>
+</form>
+{% endblock %}

@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}Job {{ job.id }} · @{{ job.handle }}{% endblock %}
+{% block body %}
+<section class="hero">
+  <h1>@{{ job.handle }} <span class="pill {{ job.status }}" id="status">{{ job.status }}</span></h1>
+  <p id="stage">{{ job.stage or "" }}{% if job.progress_total %} · {{ job.progress_current }}/{{ job.progress_total }}{% endif %}</p>
+  {% if job.error %}<p class="error">{{ job.error }}</p>{% endif %}
+  <p class="muted">{{ job.created_at }}{% if job.since or job.until %} · {{ job.since or "…" }} – {{ job.until or "…" }}{% endif %}</p>
+  <div class="actions">
+    {% if job.status == "done" %}
+      <a class="btn" href="{{ url_for('download_pdf', job_id=job.id) }}">Download PDF</a>
+      <a class="btn ghost" href="{{ url_for('download_md', job_id=job.id) }}">Markdown</a>
+      <form method="post" action="{{ url_for('rebuild_pdf', job_id=job.id) }}">
+        <button type="submit">Rebuild PDF from flags</button>
+      </form>
+    {% endif %}
+    {% if job.status != "running" %}
+      <form method="post" action="{{ url_for('retry_job', job_id=job.id) }}">
+        <button type="submit" class="ghost">Run again</button>
+      </form>
+    {% endif %}
+  </div>
+  <p class="muted" id="counts">{{ job.post_count }} posts · {{ job.keep_count }} KEEP · {{ job.delete_count }} DELETE</p>
+</section>
+
+{% if posts %}
+<div class="grid">
+  {% for p in posts %}
+  <article class="post card">
+    {% if p.image_relpath %}
+      <a href="{{ url_for('job_image', job_id=job.id, name=p.image_relpath) }}" target="_blank">
+        <img src="{{ url_for('job_image', job_id=job.id, name=p.image_relpath) }}" alt="">
+      </a>
+    {% endif %}
+    <div class="meta">
+      <span class="pill {{ p.rec|lower }}">{{ p.rec }}</span>
+      <span class="muted">{{ p.date }}</span>
+    </div>
+    <p class="caption">{{ p.text }}</p>
+    <p><a href="{{ p.url }}" target="_blank" rel="noreferrer">Open on X</a></p>
+    <form class="rec-form" method="post" action="{{ url_for('set_rec', job_id=job.id, tweet_id=p.tweet_id) }}">
+      <button name="rec" value="KEEP" type="submit">KEEP</button>
+      <button name="rec" value="DELETE" type="submit">DELETE</button>
+    </form>
+    <p class="why">{{ p.why }}</p>
+  </article>
+  {% endfor %}
+</div>
+{% elif job.status == "running" or job.status == "queued" %}
+  <p class="muted">Fetching posts…</p>
+{% endif %}
+
+{% if job.status in ("queued", "running") %}
+<script>
+  const id = {{ job.id }};
+  async function tick() {
+    const r = await fetch(`/api/jobs/${id}`);
+    const j = await r.json();
+    document.getElementById("status").textContent = j.status;
+    document.getElementById("status").className = "pill " + j.status;
+    let stage = j.stage || "";
+    if (j.progress_total) stage += ` · ${j.progress_current}/${j.progress_total}`;
+    document.getElementById("stage").textContent = stage;
+    if (j.status === "done" || j.status === "error") location.reload();
+    else setTimeout(tick, 1500);
+  }
+  setTimeout(tick, 1500);
+</script>
+{% endif %}
+{% endblock %}
